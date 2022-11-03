@@ -32,6 +32,7 @@ Install the package, this will plop a binary into your bin path:
 motomod@ubuntu:~$ make install
 ```
 
+You will need to ensure that you're GOPATH is set in your bash, zsh (or whatever) profile to be able to execute the binary.
 ## Configuration
 To use this application you'll need to create a configuration file located at 
 `~/.config/mysql-stash/config.yml`, see bundled 
