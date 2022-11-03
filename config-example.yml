@@ -1,0 +1,19 @@
+databases:
+  foo:
+    host: 127.0.0.1
+    port: 3306
+    database: foo
+    user: root
+    pass: 123
+  bar:
+    host: 127.0.0.1
+    port: 3306
+    database: bar
+    user: root
+    pass: 123
+  zigzag:
+    host: 127.0.0.1
+    port: 8369
+    database: zigzag
+    user: root
+    pass: 123
