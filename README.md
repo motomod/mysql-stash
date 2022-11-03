@@ -39,11 +39,11 @@ To use this application you'll need to create a configuration file located at
 
 Root properties:
 - `databases` - An array of a database objects, keys are the name of the database:
--- host
--- port
--- database
--- user
--- pass
+	- host
+	- port
+	- database
+	- user
+	- pass
 
 ## Usage
 You can access the application by running:
@@ -51,8 +51,6 @@ You can access the application by running:
 motomod@ubuntu:~$ mysql-stash
 ```
 Providing no arguments will result in a message to come back here, hiya :wave:
-
-```client, err := form3.client("http://someurl:8094", nil)```
 
 #### Creating a stash
 
