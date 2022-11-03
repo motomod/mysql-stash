@@ -5,10 +5,11 @@ Quick, easy & simple way to stash your database state and reapply.
 
 ## System requirements
 ### MacOS
-Install `mysql-client` & `go` package via Brew:
+Install `mysql-client` package via Brew:
 ```console
 motomod@mac:~$ brew install mysql-client
 ```
+Download the Go package from [here](https://go.dev/doc/install) and install. 
 
 ### Linux
 Install the `mysql-client` & `golang` via your favourite package manager:
