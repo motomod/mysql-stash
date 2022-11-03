@@ -23,7 +23,7 @@ func New(config *config.Config) *MySql {
 	}
 }
 
-func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error {
+func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error {
 	stashFilePath, err := m.config.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
@@ -40,7 +40,7 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 	return nil
 }
 
-func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error {
+func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error {
 	stashFilePath, err := m.config.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
