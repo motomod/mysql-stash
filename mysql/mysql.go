@@ -34,8 +34,14 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 	_, err = exec.Command("bash", "-c", command).Output()
 
 	if err != nil {
+		if err.Error() == "exit status 2" {
+			return errors.New(fmt.Sprintf("Cannot connect to db '%s'", dbName))
+		}
+
 		return err
 	}
+
+	fmt.Printf("Created stash '%s' for database '%s'\n", stashName, dbName)
 
 	return nil
 }
@@ -55,8 +61,14 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 	_, err = exec.Command("bash", "-c", command).Output()
 
 	if err != nil {
+		if err.Error() == "exit status 1" {
+			return errors.New(fmt.Sprintf("Cannot connect to db '%s'", dbName))
+		}
+
 		return err
 	}
+
+	fmt.Printf("Applied stash '%s' for database '%s'\n", stashName, dbName)
 
 	return nil
 }
