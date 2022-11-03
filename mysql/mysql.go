@@ -34,6 +34,7 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 	_, err = exec.Command("bash", "-c", command).Output()
 
 	if err != nil {
+		os.Remove(stashFilePath)
 		if err.Error() == "exit status 2" {
 			return errors.New(fmt.Sprintf("Cannot connect to db '%s'", dbName))
 		}
