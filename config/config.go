@@ -51,7 +51,7 @@ func (c Config) LoadDBConfig() (map[string]*DB, error) {
 		return nil, err
 	}
 
-	return c.Databases, err
+	return cnf.Databases, err
 }
 
 func (c Config) getStoragePath() (string, error) {
