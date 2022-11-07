@@ -72,7 +72,7 @@ Stashes are standard SQL dumps from `mysqldump` and are located in the same path
 ```console
 motomod@ubuntu:~$ mysql-stash apply <db name> <stash name>
 ```
-- `<db name>` the name of the database that you wish to create a stash for, must match one of the keys 
+- `<db name>` the name of the database that you wish to apply a stash for, must match one of the keys 
 defined in your configuration or be `all` which will apply the stashes for all of your databases.
 - `<stash name>` name of the stash that you wish to reapply.
 
