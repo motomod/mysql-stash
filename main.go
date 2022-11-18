@@ -39,8 +39,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	if 1 == argLen {
+		fmt.Println("missing database name")
+
+		return
+	}
+
 	dbName := os.Args[2]
 	databases, err := config.LoadDBConfig()
+
+	if 2 == argLen {
+		fmt.Println("missing stash name")
+
+		return
+	}
 
 	stashName := os.Args[3]
 
