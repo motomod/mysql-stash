@@ -1,4 +1,4 @@
-package mysql
+package stashers
 
 import (
 	"errors"
@@ -8,16 +8,11 @@ import (
 	"os/exec"
 )
 
-type MySqlInterface interface {
-	ApplyStash(db *config.DB, dbName string, stashName string) error
-	CreateStash(db *config.DB, dbName string, stashName string) error
-}
-
 type MySql struct {
 	config *config.Config
 }
 
-func New(config *config.Config) *MySql {
+func NewMySQLStasher(config *config.Config) StasherInterface {
 	return &MySql{
 		config: config,
 	}
@@ -59,6 +54,7 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 	}
 
 	command := fmt.Sprintf("export MYSQL_PWD=%s; mysql -h %s -P %d -u %s %s < %s", db.Pass, db.Host, db.Port, db.User, db.Database, stashFilePath)
+
 	_, err = exec.Command("bash", "-c", command).Output()
 
 	if err != nil {

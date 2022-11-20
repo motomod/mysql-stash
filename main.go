@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"mysql-stash/config"
-	"mysql-stash/mysql"
+	"mysql-stash/stashers"
 	"os"
 )
 
@@ -47,6 +47,12 @@ func main() {
 
 	dbName := os.Args[2]
 	databases, err := config.LoadDBConfig()
+
+	if err != nil {
+		fmt.Println("config error")
+
+		return
+	}
 
 	if 2 == argLen {
 		fmt.Println("missing stash name")
@@ -90,20 +96,22 @@ func main() {
 		return
 	}
 
-	mysql := mysql.New(&config)
+	stasherInterfaces := map[string]stashers.StasherInterface{
+		"mysql": stashers.NewMySQLStasher(&config),
+	}
 
-	for dbName, db := range dbs {
-		if stashAction == action {
-			err = mysql.CreateStash(db, dbName, stashName)
-		}
+	stasher := stashers.NewStasher(&config, dbs, stasherInterfaces)
 
-		if applyAction == action {
-			err = mysql.ApplyStash(db, dbName, stashName)
-		}
+	if stashAction == action {
+		err = stasher.CreateStash(dbName, stashName)
+	}
 
-		if err != nil {
-			fmt.Println(err)
-		}
+	if applyAction == action {
+		err = stasher.ApplyStash(dbName, stashName)
+	}
+
+	if err != nil {
+		fmt.Println(err)
 	}
 }
 
@@ -153,7 +161,7 @@ func deleteStash(config *config.Config, dbName string, stashName string) error {
 	}
 
 	if _, err := os.Stat(stashFilePath); err != nil {
-		return errors.New("stash doesn't exist")
+		return errors.New("stashers doesn't exist")
 	}
 
 	return os.Remove(stashFilePath)
