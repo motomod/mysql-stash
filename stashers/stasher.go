@@ -2,7 +2,6 @@ package stashers
 
 import (
 	"errors"
-	"log"
 	"mysql-stash/config"
 )
 
@@ -44,8 +43,6 @@ func (s Stasher) execute(dbName string, stashName string, actionName string) err
 	for _, db := range s.dbs {
 		stasher, err := s.findStasher(db)
 
-		log.Println(stasher, err)
-
 		if err != nil {
 			return err
 		}
@@ -65,8 +62,6 @@ func (s Stasher) execute(dbName string, stashName string, actionName string) err
 
 	return nil
 }
-
-// FindStasher Currently only support mysql stasher based on our config files
 func (s Stasher) findStasher(*config.DB) (StasherInterface, error) {
 	if stasher, ok := s.stashers["mysql"]; ok {
 		return stasher, nil
