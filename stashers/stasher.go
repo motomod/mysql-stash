@@ -8,6 +8,10 @@ import (
 const stashAction = "stashers"
 const applyAction = "apply"
 
+const errorUnknownAction = "unknown stashing action"
+const errorNoDatabases = "no databases configured"
+const errorNoStasher = "no supporting stasher found"
+
 type StasherInterface interface {
 	ApplyStash(db *config.DB, dbName string, stashName string) error
 	CreateStash(db *config.DB, dbName string, stashName string) error
@@ -37,7 +41,11 @@ func (s Stasher) CreateStash(dbName string, stashName string) error {
 
 func (s Stasher) execute(dbName string, stashName string, actionName string) error {
 	if actionName != applyAction && actionName != stashAction {
-		return errors.New("unknown stashing action")
+		return errors.New(errorUnknownAction)
+	}
+
+	if 0 == len(s.dbs) {
+		return errors.New(errorNoDatabases)
 	}
 
 	for _, db := range s.dbs {
@@ -67,5 +75,5 @@ func (s Stasher) findStasher(*config.DB) (StasherInterface, error) {
 		return stasher, nil
 	}
 
-	return nil, errors.New("no supporting stasher found")
+	return nil, errors.New(errorNoStasher)
 }
