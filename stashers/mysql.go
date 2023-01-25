@@ -30,14 +30,19 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 
 	if err != nil {
 		os.Remove(stashFilePath)
+
+		// Rerun without --column-statistics=0 if mysqldump does not suport it
+		if err.Error() == "exit status 7" {
+			command := fmt.Sprintf("export MYSQL_PWD=%s; mysqldump -h %s -P %d -u %s %s > %s", db.Pass, db.Host, db.Port, db.User, db.Database, stashFilePath)
+			_, err = exec.Command("bash", "-c", command).Output()
+			if err != nil {
+				os.Remove(stashFilePath)
+			}
+		}
+
 		if err.Error() == "exit status 2" {
 			return errors.New(fmt.Sprintf("cannot connect to db '%s'", dbName))
 		}
-
-		if err.Error() == "exit status 7" {
-			return errors.New(fmt.Sprintf("mysqldump does not support column-statistics, please upgrade"))
-		}
-
 		return err
 	}
 
