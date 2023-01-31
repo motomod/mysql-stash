@@ -28,25 +28,25 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 	command := fmt.Sprintf("export MYSQL_PWD=%s; mysqldump -h %s -P %d -u %s %s --column-statistics=0 > %s", db.Pass, db.Host, db.Port, db.User, db.Database, stashFilePath)
 	_, err = exec.Command("bash", "-c", command).Output()
 
-	if err != nil {
-		os.Remove(stashFilePath)
+	err = errors.New("exit status 7")
 
-		// Rerun without --column-statistics=0 if mysqldump does not suport it
+	// Rerun without --column-statistics=0 if mysqldump does not support it
+	if err != nil {
 		if err.Error() == "exit status 7" {
 			command := fmt.Sprintf("export MYSQL_PWD=%s; mysqldump -h %s -P %d -u %s %s > %s", db.Pass, db.Host, db.Port, db.User, db.Database, stashFilePath)
 			_, err = exec.Command("bash", "-c", command).Output()
-			if err != nil {
-				os.Remove(stashFilePath)
-			}
 		}
+	}
+
+	if err != nil {
+		os.Remove(stashFilePath)
 
 		if err.Error() == "exit status 2" {
 			return errors.New(fmt.Sprintf("cannot connect to db '%s'", dbName))
 		}
+
 		return err
 	}
-
-	fmt.Printf("Created stash '%s' for database '%s'\n", stashName, dbName)
 
 	return nil
 }
