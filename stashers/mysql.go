@@ -1,6 +1,7 @@
 package stashers
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -80,12 +82,23 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 
 	defer stashFile.Close()
 
-	if err = resetDatabase(db); err != nil {
-		return fmt.Errorf("resetting db '%s': %w", dbName, err)
+	stashed, err := stashedObjects(stashFile)
+
+	if err != nil {
+		return err
+	}
+
+	if _, err = stashFile.Seek(0, io.SeekStart); err != nil {
+		return err
 	}
 
 	if err = run("mysql", connectionArgs(db), db.Pass, stashFile, io.Discard); err != nil {
 		return fmt.Errorf("applying stash to db '%s': %w", dbName, err)
+	}
+
+	// Only once the stash has loaded, so a failed apply never removes anything.
+	if err = dropObjectsNotIn(db, stashed); err != nil {
+		return fmt.Errorf("removing tables created since the stash from db '%s': %w", dbName, err)
 	}
 
 	return nil
@@ -112,27 +125,59 @@ func dump(db *config.DB, f *os.File) error {
 	return err
 }
 
-// resetDatabase drops and recreates db with its current charset and collation, so applying
-// a stash also removes tables created since it was taken.
-func resetDatabase(db *config.DB) error {
+// stashedObjectPattern matches the statements mysqldump writes before each table and view it creates.
+var stashedObjectPattern = regexp.MustCompile("^(?:/\\*!50001 )?DROP (?:TABLE|VIEW) IF EXISTS `((?:[^`]|``)+)`")
+
+// stashedObjects returns the names of the tables and views a stash creates.
+func stashedObjects(r io.Reader) (map[string]bool, error) {
+	objects := map[string]bool{}
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
+
+	for scanner.Scan() {
+		if match := stashedObjectPattern.FindSubmatch(scanner.Bytes()); match != nil {
+			objects[strings.ReplaceAll(string(match[1]), "``", "`")] = true
+		}
+	}
+
+	return objects, scanner.Err()
+}
+
+// dropObjectsNotIn drops the tables and views in db that aren't in stashed, i.e. those created
+// since the stash was taken. Stored routines and events aren't in stashes, so are left alone.
+func dropObjectsNotIn(db *config.DB, stashed map[string]bool) error {
 	var out bytes.Buffer
 
-	query := "SELECT @@character_set_database, @@collation_database"
+	query := "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
 
 	if err := run("mysql", connectionArgs(db, "-N", "-B", "-e", query), db.Pass, nil, &out); err != nil {
 		return err
 	}
 
-	fields := strings.Fields(out.String())
+	var views, tables []string
 
-	if len(fields) != 2 {
-		return fmt.Errorf("unexpected charset query output %q", out.String())
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		name, tableType, ok := strings.Cut(line, "\t")
+
+		if !ok || stashed[name] {
+			continue
+		}
+
+		if tableType == "VIEW" {
+			views = append(views, "DROP VIEW IF EXISTS "+quoteIdentifier(name)+";")
+		} else {
+			tables = append(tables, "DROP TABLE IF EXISTS "+quoteIdentifier(name)+";")
+		}
 	}
 
-	name := quoteIdentifier(db.Database)
-	reset := fmt.Sprintf("DROP DATABASE %s; CREATE DATABASE %s CHARACTER SET %s COLLATE %s;", name, name, fields[0], fields[1])
+	if len(views)+len(tables) == 0 {
+		return nil
+	}
 
-	return run("mysql", connectionArgs(db, "-e", reset), db.Pass, nil, io.Discard)
+	// Views first as they may depend on the tables; foreign keys between dropped tables are ignored.
+	statements := append(append([]string{"SET FOREIGN_KEY_CHECKS = 0;"}, views...), tables...)
+
+	return run("mysql", connectionArgs(db, "-e", strings.Join(statements, " ")), db.Pass, nil, io.Discard)
 }
 
 func quoteIdentifier(name string) string {

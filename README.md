@@ -95,9 +95,9 @@ motomod@ubuntu:~$ mysql-stash apply <db name> <stash name>
 defined in your configuration or be `all` which will apply the stashes for all of your databases.
 - `<stash name>` name of the stash that you wish to reapply.
 
-**Applying a stash replaces the whole database**: it's dropped and recreated (keeping its character set and
-collation) before the stash is loaded with the system `mysql` command, so anything created since the stash was taken
-is removed.
+Stashes are loaded with the system `mysql` command. Once a stash has loaded, any tables and views created since it was
+taken are dropped, so the database matches the stash. Stored procedures, functions and events aren't part of a stash
+and are left alone. If the stash fails to load, nothing extra is dropped.
 
 ---
 #### List stashes
