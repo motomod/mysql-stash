@@ -18,6 +18,15 @@ import (
 // e.g. MariaDB's mysqldump and --column-statistics.
 const exitUnknownOption = 7
 
+// optionalDumpArgs are passed to mysqldump unless it doesn't support them.
+var optionalDumpArgs = []string{
+	// Skip histogram statistics, which older servers don't have.
+	"--column-statistics=0",
+	// Leave GTID state out of the stash; on GTID-enabled servers, loading it back into the
+	// same server fails with ERROR 3546, and needs privileges most users don't have.
+	"--set-gtid-purged=OFF",
+}
+
 type MySql struct {
 	config *config.Config
 }
@@ -91,13 +100,20 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 	return nil
 }
 
-// dump writes a dump of db to f, retrying without --column-statistics=0 if mysqldump doesn't support it.
+// dump writes a dump of db to f, retrying without any optional args mysqldump doesn't support.
 func dump(db *config.DB, f *os.File) error {
-	err := run("mysqldump", connectionArgs(db, "--column-statistics=0"), db.Pass, nil, f)
+	args := append([]string{}, optionalDumpArgs...)
 
-	var exitErr *exec.ExitError
+	for {
+		err := run("mysqldump", connectionArgs(db, args...), db.Pass, nil, f)
+		rejected := rejectedArg(err, args)
 
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == exitUnknownOption {
+		if rejected < 0 {
+			return err
+		}
+
+		args = append(args[:rejected], args[rejected+1:]...)
+
 		if err = f.Truncate(0); err != nil {
 			return err
 		}
@@ -105,11 +121,26 @@ func dump(db *config.DB, f *os.File) error {
 		if _, err = f.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
+	}
+}
 
-		err = run("mysqldump", connectionArgs(db), db.Pass, nil, f)
+// rejectedArg returns the index of the arg in args that err shows mysqldump didn't recognise, or -1.
+func rejectedArg(err error, args []string) int {
+	var exitErr *exec.ExitError
+
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != exitUnknownOption {
+		return -1
 	}
 
-	return err
+	for i, arg := range args {
+		name, _, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+
+		if strings.Contains(err.Error(), name) {
+			return i
+		}
+	}
+
+	return -1
 }
 
 // resetDatabase drops and recreates db with its current charset and collation, so applying

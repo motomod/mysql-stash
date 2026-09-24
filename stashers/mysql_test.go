@@ -11,22 +11,20 @@ import (
 )
 
 // fakeMySQLDump installs a fake mysqldump on PATH that logs its args and password to a file,
-// optionally rejecting --column-statistics like MariaDB does.
-func fakeMySQLDump(t *testing.T, rejectColumnStatistics bool) string {
+// rejecting the named options like MariaDB's mysqldump does.
+func fakeMySQLDump(t *testing.T, rejectedOptions ...string) string {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "calls.log")
-	reject := "false"
+	rejections := ""
 
-	if rejectColumnStatistics {
-		reject = "true"
+	for _, option := range rejectedOptions {
+		rejections += `case "$*" in *--` + option + `=*) echo "partial output"; echo "mysqldump: unknown variable '` + option + `=...'" >&2; exit 7 ;; esac
+`
 	}
 
 	script := `#!/bin/sh
 echo "pwd=$MYSQL_PWD args=$*" >> "` + logFile + `"
-case "$*" in
-  *--column-statistics=0*) if ` + reject + `; then echo "partial output"; echo "unknown variable 'column-statistics=0'" >&2; exit 7; fi ;;
-esac
-case "$*" in
+` + rejections + `case "$*" in
   *baddb*) echo "Got error: 1049: Unknown database 'baddb'" >&2; exit 2 ;;
 esac
 for db; do :; done
@@ -58,18 +56,18 @@ func readLog(t *testing.T, logFile string) []string {
 }
 
 func TestDumpPassesPasswordViaEnvironmentOnly(t *testing.T) {
-	logFile := fakeMySQLDump(t, false)
+	logFile := fakeMySQLDump(t)
 	db := &config.DB{Host: "127.0.0.1", Port: 3306, Database: "foo", User: "root", Pass: "p@ss word;$x"}
 
 	out, err := dumpToString(t, db)
 
 	require.NoError(t, err)
 	assert.Equal(t, "-- dump of foo\n", out)
-	assert.Equal(t, []string{"pwd=p@ss word;$x args=-h 127.0.0.1 -P 3306 -u root --column-statistics=0 foo"}, readLog(t, logFile))
+	assert.Equal(t, []string{"pwd=p@ss word;$x args=-h 127.0.0.1 -P 3306 -u root --column-statistics=0 --set-gtid-purged=OFF foo"}, readLog(t, logFile))
 }
 
 func TestDumpRetriesWithoutColumnStatistics(t *testing.T) {
-	logFile := fakeMySQLDump(t, true)
+	logFile := fakeMySQLDump(t, "column-statistics")
 	db := &config.DB{Host: "h", Port: 1, Database: "foo", User: "u", Pass: "p"}
 
 	out, err := dumpToString(t, db)
@@ -79,8 +77,31 @@ func TestDumpRetriesWithoutColumnStatistics(t *testing.T) {
 	assert.Len(t, readLog(t, logFile), 2)
 }
 
+func TestDumpRetriesWithoutEachUnsupportedOption(t *testing.T) {
+	logFile := fakeMySQLDump(t, "column-statistics", "set-gtid-purged")
+
+	out, err := dumpToString(t, &config.DB{Host: "h", Port: 1, User: "u", Database: "foo"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "-- dump of foo\n", out)
+	calls := readLog(t, logFile)
+	require.Len(t, calls, 3)
+	assert.Equal(t, "pwd= args=-h h -P 1 -u u foo", calls[2])
+}
+
+func TestDumpKeepsSupportedOptionsWhenOneIsRejected(t *testing.T) {
+	logFile := fakeMySQLDump(t, "set-gtid-purged")
+
+	_, err := dumpToString(t, &config.DB{Host: "h", Port: 1, User: "u", Database: "foo"})
+
+	require.NoError(t, err)
+	calls := readLog(t, logFile)
+	require.Len(t, calls, 2)
+	assert.Equal(t, "pwd= args=-h h -P 1 -u u --column-statistics=0 foo", calls[1])
+}
+
 func TestDumpRunsOnceWhenColumnStatisticsSupported(t *testing.T) {
-	logFile := fakeMySQLDump(t, false)
+	logFile := fakeMySQLDump(t)
 
 	_, err := dumpToString(t, &config.DB{Database: "foo"})
 
@@ -89,7 +110,7 @@ func TestDumpRunsOnceWhenColumnStatisticsSupported(t *testing.T) {
 }
 
 func TestDumpErrorIncludesClientStderr(t *testing.T) {
-	fakeMySQLDump(t, false)
+	fakeMySQLDump(t)
 
 	_, err := dumpToString(t, &config.DB{Database: "baddb"})
 
@@ -97,7 +118,7 @@ func TestDumpErrorIncludesClientStderr(t *testing.T) {
 }
 
 func TestCreateStashWritesPrivateFile(t *testing.T) {
-	fakeMySQLDump(t, false)
+	fakeMySQLDump(t)
 	cfg := &config.Config{BaseDir: t.TempDir()}
 
 	err := NewMySQLStasher(cfg).CreateStash(&config.DB{Database: "foo_db"}, "foo", "snap")
@@ -115,7 +136,7 @@ func TestCreateStashWritesPrivateFile(t *testing.T) {
 }
 
 func TestFailedCreateStashKeepsExistingStash(t *testing.T) {
-	fakeMySQLDump(t, false)
+	fakeMySQLDump(t)
 	cfg := &config.Config{BaseDir: t.TempDir()}
 	path, _ := cfg.GetStashFilePath("foo", "snap")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
