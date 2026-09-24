@@ -2,7 +2,7 @@ package stashers
 
 import (
 	"errors"
-	"mysql-stash/config"
+	"github.com/motomod/mysql-stash/config"
 	"sort"
 )
 

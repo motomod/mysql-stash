@@ -2,9 +2,9 @@ package stashers
 
 import (
 	"errors"
+	config "github.com/motomod/mysql-stash/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	config "mysql-stash/config"
 	"testing"
 )
 

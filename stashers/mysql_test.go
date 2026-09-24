@@ -1,9 +1,9 @@
 package stashers
 
 import (
+	"github.com/motomod/mysql-stash/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"mysql-stash/config"
 	"os"
 	"path/filepath"
 	"strings"

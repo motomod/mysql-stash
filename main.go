@@ -3,10 +3,10 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/motomod/mysql-stash/config"
+	"github.com/motomod/mysql-stash/stashers"
 	"io"
 	"io/fs"
-	"mysql-stash/config"
-	"mysql-stash/stashers"
 	"os"
 	"path/filepath"
 	"sort"
