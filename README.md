@@ -64,6 +64,9 @@ Root properties:
 	- user
 	- pass
 
+Only `database` is required. Any of `host`, `port`, `user` and `pass` that are left out aren't passed to the MySQL
+tools, so they come from your `~/.my.cnf` or the tools' defaults instead.
+
 ## Usage
 You can access the application by running:
 ```console
