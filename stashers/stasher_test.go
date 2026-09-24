@@ -1,83 +1,91 @@
 package stashers
 
 import (
+	"errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	config "mysql-stash/config"
 	"testing"
 )
 
+func testDB(name string) *config.DB {
+	return &config.DB{
+		Host:     "test",
+		Port:     0,
+		Database: name,
+		User:     "test",
+		Pass:     "test",
+	}
+}
+
 func TestNoDbsInConfigReturnsError(t *testing.T) {
-	cfg := config.New()
-	dbs := map[string]*config.DB{}
-	stashers := map[string]StasherInterface{}
+	stasher := NewStasher(map[string]*config.DB{}, map[string]StasherInterface{})
 
-	stasher := NewStasher(&cfg, dbs, stashers)
-
-	err := stasher.ApplyStash("test", "test")
+	err := stasher.ApplyStash("test")
 
 	assert.EqualError(t, err, errorNoDatabases)
 }
 
 func TestMissingMySQLStasherReturnsError(t *testing.T) {
-	cfg := config.New()
-	dbs := map[string]*config.DB{
-		"poop": {
-			Host:     "test",
-			Port:     0,
-			Database: "test",
-			User:     "test",
-			Pass:     "test",
-		},
-	}
-	stashers := map[string]StasherInterface{}
+	dbs := map[string]*config.DB{"foo": testDB("foo")}
+	stasher := NewStasher(dbs, map[string]StasherInterface{})
 
-	stasher := NewStasher(&cfg, dbs, stashers)
-
-	err := stasher.ApplyStash("test", "test")
+	err := stasher.ApplyStash("test")
 
 	assert.EqualError(t, err, errorNoStasher)
 }
 
+type call struct {
+	action    string
+	dbName    string
+	database  string
+	stashName string
+}
+
 type mockStasher struct {
-	Counter int
+	calls []call
+	err   error
 }
 
 func (m *mockStasher) ApplyStash(db *config.DB, dbName string, stashName string) error {
-	m.Counter++
+	m.calls = append(m.calls, call{"apply", dbName, db.Database, stashName})
 
-	return nil
+	return m.err
 }
 
 func (m *mockStasher) CreateStash(db *config.DB, dbName string, stashName string) error {
-	m.Counter++
+	m.calls = append(m.calls, call{"stash", dbName, db.Database, stashName})
 
-	return nil
+	return m.err
 }
 
-func TestMysqlStasherIsFoundAndExecuted(t *testing.T) {
-	cfg := config.New()
+func TestEachDatabaseIsStashedUnderItsOwnName(t *testing.T) {
 	dbs := map[string]*config.DB{
-		"poop": {
-			Host:     "test",
-			Port:     0,
-			Database: "test",
-			User:     "test",
-			Pass:     "test",
-		},
+		"foo": testDB("foo_db"),
+		"bar": testDB("bar_db"),
 	}
+	mock := &mockStasher{}
+	stasher := NewStasher(dbs, map[string]StasherInterface{"mysql": mock})
 
-	counter := 0
+	require.NoError(t, stasher.CreateStash("snap"))
+	require.NoError(t, stasher.ApplyStash("snap"))
 
-	mock := &mockStasher{counter}
+	assert.Equal(t, []call{
+		{"stash", "bar", "bar_db", "snap"},
+		{"stash", "foo", "foo_db", "snap"},
+		{"apply", "bar", "bar_db", "snap"},
+		{"apply", "foo", "foo_db", "snap"},
+	}, mock.calls)
+}
 
-	stashers := map[string]StasherInterface{
-		"mysql": mock,
+func TestStopsAtFirstError(t *testing.T) {
+	dbs := map[string]*config.DB{
+		"foo": testDB("foo_db"),
+		"bar": testDB("bar_db"),
 	}
+	mock := &mockStasher{err: errors.New("boom")}
+	stasher := NewStasher(dbs, map[string]StasherInterface{"mysql": mock})
 
-	stasher := NewStasher(&cfg, dbs, stashers)
-
-	stasher.ApplyStash("test", "test")
-	stasher.CreateStash("test", "test")
-
-	assert.Equal(t, 2, mock.Counter)
+	assert.EqualError(t, stasher.CreateStash("snap"), "boom")
+	assert.Len(t, mock.calls, 1)
 }

@@ -35,7 +35,7 @@ func main() {
 	}
 
 	if stashAction != action && applyAction != action && deleteAction != action && viewAction != action {
-		fmt.Println("unrecognised command, must be 'stash', 'restore', 'delete' or 'view")
+		fmt.Println("unrecognised command, must be 'stash', 'apply', 'list', 'delete' or 'view'")
 		os.Exit(1)
 	}
 
@@ -100,14 +100,14 @@ func main() {
 		"mysql": stashers.NewMySQLStasher(&config),
 	}
 
-	stasher := stashers.NewStasher(&config, dbs, stasherInterfaces)
+	stasher := stashers.NewStasher(dbs, stasherInterfaces)
 
 	if stashAction == action {
-		err = stasher.CreateStash(dbName, stashName)
+		err = stasher.CreateStash(stashName)
 	}
 
 	if applyAction == action {
-		err = stasher.ApplyStash(dbName, stashName)
+		err = stasher.ApplyStash(stashName)
 	}
 
 	if err != nil {
@@ -161,7 +161,7 @@ func deleteStash(config *config.Config, dbName string, stashName string) error {
 	}
 
 	if _, err := os.Stat(stashFilePath); err != nil {
-		return errors.New("stashers doesn't exist")
+		return errors.New("stash doesn't exist")
 	}
 
 	return os.Remove(stashFilePath)
