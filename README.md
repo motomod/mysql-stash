@@ -9,6 +9,8 @@ Install `mysql-client` package via Brew:
 ```console
 motomod@mac:~$ brew install mysql-client
 ```
+The formula is keg-only, so `mysql` and `mysqldump` aren't on your `PATH` by default. Follow the instructions
+brew prints, or add `$(brew --prefix mysql-client)/bin` to your `PATH`.
 Download the Go package from [here](https://go.dev/doc/install) and install. 
 
 ### Linux
@@ -17,10 +19,15 @@ Install the `mysql-client` & `golang` via your favourite package manager:
 motomod@ubuntu:~$ apt-get install mysql-client golang
 ```
 ---
-You'll also need `bash` but I'll assume that you probably already have this.
+Either the MySQL or MariaDB client tools will do.
 
 ## Installation
-Clone this repo to your computer:
+Install the latest version with Go:
+```console
+motomod@ubuntu:~$ go install github.com/motomod/mysql-stash@latest
+```
+
+Or, to build from source, clone this repo to your computer:
 ```console
 motomod@ubuntu:~$ git clone git@github.com:motomod/mysql-stash.git
 ```
@@ -33,11 +40,21 @@ Install the package, this will plop a binary into your bin path:
 motomod@ubuntu:~$ make install
 ```
 
-You will need to ensure that you're GOPATH is set in your bash, zsh (or whatever) profile to be able to execute the binary.
+Either way the binary lands in `$(go env GOPATH)/bin`, which needs to be on your `PATH` in your bash, zsh (or whatever)
+profile to be able to execute it.
 ## Configuration
-To use this application you'll need to create a configuration file located at 
-`~/.config/mysql-stash/config.yml`, see bundled 
-[example](https://github.com/motomod/mysql-stash/blob/master/config-example.yml).
+To use this application you'll need to create a configuration file located at
+`~/.config/mysql-stash/config.yml`, see bundled [example](config-example.yml):
+```console
+motomod@ubuntu:~$ mkdir -p ~/.config/mysql-stash
+motomod@ubuntu:~$ cp config-example.yml ~/.config/mysql-stash/config.yml
+motomod@ubuntu:~$ chmod 600 ~/.config/mysql-stash/config.yml
+```
+
+It holds your database passwords, hence the `chmod`.
+
+To keep your config and stashes somewhere else, set `MYSQL_STASH_HOME` to that directory, e.g.
+`MYSQL_STASH_HOME=. mysql-stash list` uses the current directory.
 
 Root properties:
 - `databases` - An array of a database objects, keys are the name of the database:
@@ -52,7 +69,7 @@ You can access the application by running:
 ```console
 motomod@ubuntu:~$ mysql-stash
 ```
-Providing no arguments will result in a message to come back here, hiya :wave:
+Providing no arguments will print a summary of the commands, or you can come back here, hiya :wave:
 
 ---
 #### Creating a stash
@@ -65,7 +82,9 @@ motomod@ubuntu:~$ mysql-stash stash <db name> <stash name>
 defined in your configuration or be `all` which will stash all of your databases.
 - `<stash name>` is the name that you wish to give your stash, you'll need this later when reapplying.
 
-Stashes are standard SQL dumps from `mysqldump` and are located in the same path as your configuration.
+Stashes are standard SQL dumps from `mysqldump`, stored next to your configuration at
+`stashes/<db name>/<stash name>`. Stashing again with the same name replaces the stash, but only once the new dump
+has succeeded.
 
 ---
 #### Applying a stash
@@ -76,7 +95,9 @@ motomod@ubuntu:~$ mysql-stash apply <db name> <stash name>
 defined in your configuration or be `all` which will apply the stashes for all of your databases.
 - `<stash name>` name of the stash that you wish to reapply.
 
-Stashes are piped to the system `mysql` command in bash.
+**Applying a stash replaces the whole database**: it's dropped and recreated (keeping its character set and
+collation) before the stash is loaded with the system `mysql` command, so anything created since the stash was taken
+is removed.
 
 ---
 #### List stashes
@@ -93,3 +114,11 @@ motomod@ubuntu:~$ mysql-stash view <db name> <stash name>
 ```
 - `<db name>` the name of the database for the stash you wish to view, cannot be `all` this time, soz.
 - `<stash name>` name of the stash that you wish to view.
+
+---
+#### Delete stash
+```console
+motomod@ubuntu:~$ mysql-stash delete <db name> <stash name>
+```
+- `<db name>` the name of the database for the stash you wish to delete.
+- `<stash name>` name of the stash that you wish to delete.

@@ -4,18 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-const localStoragePath = "./"
-const homeStoragePathFormat = "%s/.config/mysql-stash/"
+// HomeEnvVar overrides the default ~/.config/mysql-stash storage directory.
+const HomeEnvVar = "MYSQL_STASH_HOME"
+
 const configFilename = "config.yml"
-const stashPath = "stashes/"
+const stashDirname = "stashes"
 
 type Config struct {
-	Databases map[string]*DB
+	// BaseDir holds config.yml and the stashes directory.
+	BaseDir string
 }
 
 type DB struct {
@@ -26,91 +28,72 @@ type DB struct {
 	Pass     string
 }
 
-func New() Config {
-	return Config{}
+type configFile struct {
+	Databases map[string]*DB
 }
 
-func (c Config) LoadDBConfig() (map[string]*DB, error) {
-	filepath, err := c.getConfigFileLoc()
+// New returns a Config rooted at $MYSQL_STASH_HOME, or ~/.config/mysql-stash if unset.
+func New() (*Config, error) {
+	if baseDir := os.Getenv(HomeEnvVar); baseDir != "" {
+		return &Config{BaseDir: baseDir}, nil
+	}
+
+	homeDir, err := os.UserHomeDir()
 
 	if err != nil {
 		return nil, err
 	}
 
-	yamlFile, err := ioutil.ReadFile(filepath)
+	return &Config{BaseDir: filepath.Join(homeDir, ".config", "mysql-stash")}, nil
+}
+
+func (c *Config) ConfigFilePath() string {
+	return filepath.Join(c.BaseDir, configFilename)
+}
+
+func (c *Config) LoadDBConfig() (map[string]*DB, error) {
+	path := c.ConfigFilePath()
+	yamlFile, err := os.ReadFile(path)
+
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("no config found at %s, see config-example.yml", path)
+	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	cnf := Config{}
+	cnf := configFile{}
 
-	err = yaml.Unmarshal(yamlFile, &cnf)
-
-	if err != nil {
-		return nil, err
+	if err = yaml.Unmarshal(yamlFile, &cnf); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
-	return cnf.Databases, err
+	return cnf.Databases, nil
 }
 
-func (c Config) getStoragePath() (string, error) {
-	homePath, err := os.UserHomeDir()
-
-	if nil != err {
-		return "", err
-	}
-
-	homeStoragePath := fmt.Sprintf(homeStoragePathFormat, homePath)
-
-	if _, err := os.Stat(homeStoragePath); err == nil {
-		return homeStoragePath, nil
-	}
-
-	if _, err := os.Stat(localStoragePath); err == nil {
-		return localStoragePath, nil
-	}
-
-	return "", errors.New("no suitable storage directory exists")
+// GetStashPath returns the directory holding a database's stashes, or all stashes if dbName is empty.
+func (c *Config) GetStashPath(dbName string) string {
+	return filepath.Join(c.BaseDir, stashDirname, dbName)
 }
 
-func (c Config) GetStashPath(dbName string) (string, error) {
-	storagePath, err := c.getStoragePath()
-
-	if err != nil {
+// GetStashFilePath returns the path of a stash file, rejecting names that would escape the stash directory.
+func (c *Config) GetStashFilePath(dbName string, stashName string) (string, error) {
+	if err := validateName("database", dbName); err != nil {
 		return "", err
 	}
 
-	return filepath.Join(storagePath, stashPath, dbName), nil
+	if err := validateName("stash", stashName); err != nil {
+		return "", err
+	}
+
+	return filepath.Join(c.GetStashPath(dbName), stashName), nil
 }
 
-func (c Config) GetStashFilePath(dbName string, stashName string) (string, error) {
-	stashPath, err := c.GetStashPath(dbName)
-	stashFilePath := fmt.Sprintf("%s/%s", stashPath, stashName)
-
-	if err != nil {
-		return "", err
+func validateName(kind string, name string) error {
+	if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
+		return fmt.Errorf("invalid %s name '%s'", kind, name)
 	}
 
-	err = os.MkdirAll(stashPath, 0o700)
-
-	if err != nil {
-		return "", err
-	}
-
-	return stashFilePath, nil
-}
-
-func (c Config) getConfigFileLoc() (string, error) {
-	storagePath, err := c.getStoragePath()
-
-	if err != nil {
-		return "", err
-	}
-
-	if _, err := os.Stat(storagePath + configFilename); err == nil {
-		return storagePath + configFilename, nil
-	}
-
-	return "", errors.New("no config exists")
+	return nil
 }

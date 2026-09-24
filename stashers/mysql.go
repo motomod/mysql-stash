@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/motomod/mysql-stash/config"
 	"io"
 	"io/fs"
-	"mysql-stash/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +32,10 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 	stashFilePath, err := m.config.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
+		return err
+	}
+
+	if err = os.MkdirAll(filepath.Dir(stashFilePath), 0o700); err != nil {
 		return err
 	}
 
@@ -76,18 +80,20 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 
 	defer stashFile.Close()
 
+	if err = resetDatabase(db); err != nil {
+		return fmt.Errorf("resetting db '%s': %w", dbName, err)
+	}
+
 	if err = run("mysql", connectionArgs(db), db.Pass, stashFile, io.Discard); err != nil {
 		return fmt.Errorf("applying stash to db '%s': %w", dbName, err)
 	}
-
-	fmt.Printf("Applied stash '%s' for database '%s'\n", stashName, dbName)
 
 	return nil
 }
 
 // dump writes a dump of db to f, retrying without --column-statistics=0 if mysqldump doesn't support it.
 func dump(db *config.DB, f *os.File) error {
-	err := run("mysqldump", append(connectionArgs(db), "--column-statistics=0"), db.Pass, nil, f)
+	err := run("mysqldump", connectionArgs(db, "--column-statistics=0"), db.Pass, nil, f)
 
 	var exitErr *exec.ExitError
 
@@ -106,8 +112,39 @@ func dump(db *config.DB, f *os.File) error {
 	return err
 }
 
-func connectionArgs(db *config.DB) []string {
-	return []string{"-h", db.Host, "-P", strconv.Itoa(db.Port), "-u", db.User, db.Database}
+// resetDatabase drops and recreates db with its current charset and collation, so applying
+// a stash also removes tables created since it was taken.
+func resetDatabase(db *config.DB) error {
+	var out bytes.Buffer
+
+	query := "SELECT @@character_set_database, @@collation_database"
+
+	if err := run("mysql", connectionArgs(db, "-N", "-B", "-e", query), db.Pass, nil, &out); err != nil {
+		return err
+	}
+
+	fields := strings.Fields(out.String())
+
+	if len(fields) != 2 {
+		return fmt.Errorf("unexpected charset query output %q", out.String())
+	}
+
+	name := quoteIdentifier(db.Database)
+	reset := fmt.Sprintf("DROP DATABASE %s; CREATE DATABASE %s CHARACTER SET %s COLLATE %s;", name, name, fields[0], fields[1])
+
+	return run("mysql", connectionArgs(db, "-e", reset), db.Pass, nil, io.Discard)
+}
+
+func quoteIdentifier(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// connectionArgs returns the client arguments for db, with any extra options before the database name.
+func connectionArgs(db *config.DB, extra ...string) []string {
+	args := []string{"-h", db.Host, "-P", strconv.Itoa(db.Port), "-u", db.User}
+	args = append(args, extra...)
+
+	return append(args, db.Database)
 }
 
 // run executes a mysql client binary, passing the password via the environment so it
