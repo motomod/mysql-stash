@@ -94,3 +94,38 @@ func TestDumpErrorIncludesClientStderr(t *testing.T) {
 
 	assert.ErrorContains(t, err, "Unknown database 'baddb'")
 }
+
+func TestCreateStashWritesPrivateFile(t *testing.T) {
+	fakeMySQLDump(t, false)
+	cfg := &config.Config{BaseDir: t.TempDir()}
+
+	err := NewMySQLStasher(cfg).CreateStash(&config.DB{Database: "foo_db"}, "foo", "snap")
+
+	require.NoError(t, err)
+	path, _ := cfg.GetStashFilePath("foo", "snap")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "-- dump of foo_db\n", string(content))
+
+	info, _ := os.Stat(path)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	info, _ = os.Stat(filepath.Dir(path))
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
+func TestFailedCreateStashKeepsExistingStash(t *testing.T) {
+	fakeMySQLDump(t, false)
+	cfg := &config.Config{BaseDir: t.TempDir()}
+	path, _ := cfg.GetStashFilePath("foo", "snap")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte("previous good stash"), 0o600))
+
+	err := NewMySQLStasher(cfg).CreateStash(&config.DB{Database: "baddb"}, "foo", "snap")
+
+	assert.ErrorContains(t, err, "Unknown database 'baddb'")
+	content, _ := os.ReadFile(path)
+	assert.Equal(t, "previous good stash", string(content))
+
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	assert.Len(t, entries, 1, "temp file should be cleaned up")
+}

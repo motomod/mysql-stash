@@ -39,11 +39,15 @@ func run(args []string) error {
 	}
 
 	action := args[0]
-	cfg := config.New()
+	cfg, err := config.New()
+
+	if err != nil {
+		return err
+	}
 
 	switch action {
 	case listAction:
-		return printStashes(&cfg)
+		return printStashes(cfg)
 	case stashAction, applyAction, deleteAction, viewAction:
 	default:
 		return fmt.Errorf("unrecognised command '%s'\n\n%s", action, usage)
@@ -57,7 +61,7 @@ func run(args []string) error {
 
 	switch action {
 	case deleteAction:
-		if err := deleteStash(&cfg, dbName, stashName); err != nil {
+		if err := deleteStash(cfg, dbName, stashName); err != nil {
 			return err
 		}
 
@@ -65,13 +69,13 @@ func run(args []string) error {
 
 		return nil
 	case viewAction:
-		return viewStash(&cfg, dbName, stashName)
+		return viewStash(cfg, dbName, stashName)
 	}
 
 	databases, err := cfg.LoadDBConfig()
 
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return err
 	}
 
 	dbs, err := getDBsFromArgument(dbName, databases)
@@ -81,7 +85,7 @@ func run(args []string) error {
 	}
 
 	stasherInterfaces := map[string]stashers.StasherInterface{
-		"mysql": stashers.NewMySQLStasher(&cfg),
+		"mysql": stashers.NewMySQLStasher(cfg),
 	}
 
 	stasher := stashers.NewStasher(dbs, stasherInterfaces)
@@ -114,16 +118,15 @@ func describeDBs(dbs map[string]*config.DB) string {
 
 	sort.Strings(names)
 
-	return "database " + strings.Join(names, ", ")
-}
-
-func printStashes(config *config.Config) error {
-	stashPath, err := config.GetStashPath("")
-
-	if err != nil {
-		return err
+	if len(names) == 1 {
+		return "database " + names[0]
 	}
 
+	return "databases " + strings.Join(names, ", ")
+}
+
+func printStashes(cfg *config.Config) error {
+	stashPath := cfg.GetStashPath("")
 	dbDirs, err := os.ReadDir(stashPath)
 
 	if errors.Is(err, fs.ErrNotExist) {
@@ -185,8 +188,8 @@ func getDBsFromArgument(dbName string, databases map[string]*config.DB) (map[str
 	return filteredDatabases, nil
 }
 
-func deleteStash(config *config.Config, dbName string, stashName string) error {
-	stashFilePath, err := config.GetStashFilePath(dbName, stashName)
+func deleteStash(cfg *config.Config, dbName string, stashName string) error {
+	stashFilePath, err := cfg.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
 		return err
@@ -199,8 +202,8 @@ func deleteStash(config *config.Config, dbName string, stashName string) error {
 	return os.Remove(stashFilePath)
 }
 
-func viewStash(config *config.Config, dbName string, stashName string) error {
-	stashFilePath, err := config.GetStashFilePath(dbName, stashName)
+func viewStash(cfg *config.Config, dbName string, stashName string) error {
+	stashFilePath, err := cfg.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
 		return err

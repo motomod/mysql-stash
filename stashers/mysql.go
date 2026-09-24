@@ -35,6 +35,10 @@ func (m MySql) CreateStash(db *config.DB, dbName string, stashName string) error
 		return err
 	}
 
+	if err = os.MkdirAll(filepath.Dir(stashFilePath), 0o700); err != nil {
+		return err
+	}
+
 	// Dump to a temp file and only replace the existing stash once the dump has succeeded.
 	tmp, err := os.CreateTemp(filepath.Dir(stashFilePath), "."+stashName+".tmp-*")
 
