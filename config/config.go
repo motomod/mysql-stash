@@ -92,7 +92,7 @@ func (c Config) GetStashFilePath(dbName string, stashName string) (string, error
 		return "", err
 	}
 
-	err = os.MkdirAll(stashPath, os.ModePerm)
+	err = os.MkdirAll(stashPath, 0o700)
 
 	if err != nil {
 		return "", err
