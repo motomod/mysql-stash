@@ -140,8 +140,22 @@ func quoteIdentifier(name string) string {
 }
 
 // connectionArgs returns the client arguments for db, with any extra options before the database name.
+// Unset options are omitted, so ~/.my.cnf or the client's defaults apply.
 func connectionArgs(db *config.DB, extra ...string) []string {
-	args := []string{"-h", db.Host, "-P", strconv.Itoa(db.Port), "-u", db.User}
+	var args []string
+
+	if db.Host != "" {
+		args = append(args, "-h", db.Host)
+	}
+
+	if db.Port != 0 {
+		args = append(args, "-P", strconv.Itoa(db.Port))
+	}
+
+	if db.User != "" {
+		args = append(args, "-u", db.User)
+	}
+
 	args = append(args, extra...)
 
 	return append(args, db.Database)
@@ -153,7 +167,7 @@ func run(name string, args []string, pass string, stdin io.Reader, stdout io.Wri
 	var stderr bytes.Buffer
 
 	cmd := exec.Command(name, args...)
-	cmd.Env = append(os.Environ(), "MYSQL_PWD="+pass)
+	cmd.Env = passwordEnv(pass, os.Environ())
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
@@ -168,4 +182,13 @@ func run(name string, args []string, pass string, stdin io.Reader, stdout io.Wri
 	}
 
 	return nil
+}
+
+// passwordEnv returns env with the password set for the mysql clients, if there is one.
+func passwordEnv(pass string, env []string) []string {
+	if pass == "" {
+		return env
+	}
+
+	return append(env, "MYSQL_PWD="+pass)
 }
