@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"log"
+	"io"
+	"io/fs"
 	"mysql-stash/config"
 	"mysql-stash/stashers"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -17,131 +19,155 @@ const listAction = "list"
 const deleteAction = "delete"
 const viewAction = "view"
 
+const usage = `usage:
+  mysql-stash stash  <db|all> <stash>   save the current state of a database
+  mysql-stash apply  <db|all> <stash>   restore a database from a stash
+  mysql-stash list                      list stashes
+  mysql-stash view   <db> <stash>       print a stash's SQL
+  mysql-stash delete <db> <stash>       delete a stash`
+
 func main() {
-	argLen := len(os.Args[1:])
-
-	if 0 == argLen {
-		fmt.Println("see readme for examples")
-
-		return
-	}
-
-	action := os.Args[1]
-	config := config.New()
-
-	if listAction == action {
-		printStashes(&config)
-
-		return
-	}
-
-	if stashAction != action && applyAction != action && deleteAction != action && viewAction != action {
-		fmt.Println("unrecognised command, must be 'stash', 'apply', 'list', 'delete' or 'view'")
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
 
-	if 1 == argLen {
-		fmt.Println("missing database name")
-
-		return
+func run(args []string) error {
+	if 0 == len(args) {
+		return errors.New(usage)
 	}
 
-	dbName := os.Args[2]
-	databases, err := config.LoadDBConfig()
+	action := args[0]
+	cfg := config.New()
 
-	if err != nil {
-		fmt.Println("config error")
-
-		return
+	switch action {
+	case listAction:
+		return printStashes(&cfg)
+	case stashAction, applyAction, deleteAction, viewAction:
+	default:
+		return fmt.Errorf("unrecognised command '%s'\n\n%s", action, usage)
 	}
 
-	if 2 == argLen {
-		fmt.Println("missing stash name")
-
-		return
+	if len(args) != 3 {
+		return fmt.Errorf("'%s' needs a database name and a stash name\n\n%s", action, usage)
 	}
 
-	stashName := os.Args[3]
+	dbName, stashName := args[1], args[2]
 
-	if deleteAction == action {
-		err = deleteStash(&config, dbName, stashName)
-
-		if err != nil {
-			fmt.Println(err)
-
-			return
+	switch action {
+	case deleteAction:
+		if err := deleteStash(&cfg, dbName, stashName); err != nil {
+			return err
 		}
 
 		fmt.Println("stash deleted")
 
-		return
+		return nil
+	case viewAction:
+		return viewStash(&cfg, dbName, stashName)
 	}
 
-	if viewAction == action {
-		err = viewStash(&config, dbName, stashName)
+	databases, err := cfg.LoadDBConfig()
 
-		if err != nil {
-			fmt.Println(err)
-
-			return
-		}
-
-		return
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	dbs, err := getDBsFromArgument(dbName, databases)
 
 	if err != nil {
-		log.Println(err)
-
-		return
+		return err
 	}
 
 	stasherInterfaces := map[string]stashers.StasherInterface{
-		"mysql": stashers.NewMySQLStasher(&config),
+		"mysql": stashers.NewMySQLStasher(&cfg),
 	}
 
 	stasher := stashers.NewStasher(dbs, stasherInterfaces)
 
 	if stashAction == action {
-		err = stasher.CreateStash(stashName)
+		if err = stasher.CreateStash(stashName); err != nil {
+			return err
+		}
+
+		fmt.Printf("Created stash '%s' for %s\n", stashName, describeDBs(dbs))
+
+		return nil
 	}
 
-	if applyAction == action {
-		err = stasher.ApplyStash(stashName)
+	if err = stasher.ApplyStash(stashName); err != nil {
+		return err
 	}
 
-	if err != nil {
-		fmt.Println(err)
-	}
+	fmt.Printf("Applied stash '%s' to %s\n", stashName, describeDBs(dbs))
+
+	return nil
 }
 
-func printStashes(config *config.Config) {
+func describeDBs(dbs map[string]*config.DB) string {
+	names := make([]string, 0, len(dbs))
+
+	for name := range dbs {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return "database " + strings.Join(names, ", ")
+}
+
+func printStashes(config *config.Config) error {
 	stashPath, err := config.GetStashPath("")
 
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 
-	dbNames, _ := ioutil.ReadDir(stashPath)
+	dbDirs, err := os.ReadDir(stashPath)
 
-	for _, folder := range dbNames {
+	if errors.Is(err, fs.ErrNotExist) {
+		fmt.Println("no stashes")
 
-		stashes, _ := ioutil.ReadDir(stashPath + "/" + folder.Name())
+		return nil
+	}
 
-		if len(stashes) > 0 {
-			fmt.Println(folder.Name())
+	if err != nil {
+		return err
+	}
+
+	for _, dbDir := range dbDirs {
+		if !dbDir.IsDir() {
+			continue
 		}
+
+		stashes, err := os.ReadDir(filepath.Join(stashPath, dbDir.Name()))
+
+		if err != nil {
+			return err
+		}
+
+		var names []string
 
 		for _, stash := range stashes {
 			// Skip in-progress dumps, which are written to hidden temp files.
-			if strings.HasPrefix(stash.Name(), ".") {
-				continue
+			if !stash.IsDir() && !strings.HasPrefix(stash.Name(), ".") {
+				names = append(names, stash.Name())
 			}
+		}
 
-			fmt.Printf("- %s\n", stash.Name())
+		if len(names) == 0 {
+			continue
+		}
+
+		fmt.Println(dbDir.Name())
+
+		for _, name := range names {
+			fmt.Printf("- %s\n", name)
 		}
 	}
+
+	return nil
 }
 
 func getDBsFromArgument(dbName string, databases map[string]*config.DB) (map[string]*config.DB, error) {
@@ -150,7 +176,7 @@ func getDBsFromArgument(dbName string, databases map[string]*config.DB) (map[str
 	}
 
 	if _, ok := databases[dbName]; ok == false {
-		return nil, errors.New("provided db name doesn't exist in config")
+		return nil, fmt.Errorf("db '%s' doesn't exist in config", dbName)
 	}
 
 	filteredDatabases := make(map[string]*config.DB)
@@ -173,20 +199,26 @@ func deleteStash(config *config.Config, dbName string, stashName string) error {
 	return os.Remove(stashFilePath)
 }
 
-func viewStash(config *config.Config, dbName string, stashName string) (err error) {
+func viewStash(config *config.Config, dbName string, stashName string) error {
 	stashFilePath, err := config.GetStashFilePath(dbName, stashName)
 
 	if nil != err {
 		return err
 	}
 
-	bytes, err := ioutil.ReadFile(stashFilePath)
+	stashFile, err := os.Open(stashFilePath)
+
+	if errors.Is(err, fs.ErrNotExist) {
+		return errors.New("stash doesn't exist")
+	}
 
 	if nil != err {
 		return err
 	}
 
-	fmt.Println(string(bytes))
+	defer stashFile.Close()
+
+	_, err = io.Copy(os.Stdout, stashFile)
 
 	return err
 }

@@ -80,8 +80,6 @@ func (m MySql) ApplyStash(db *config.DB, dbName string, stashName string) error 
 		return fmt.Errorf("applying stash to db '%s': %w", dbName, err)
 	}
 
-	fmt.Printf("Applied stash '%s' for database '%s'\n", stashName, dbName)
-
 	return nil
 }
 
