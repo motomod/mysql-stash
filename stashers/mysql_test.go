@@ -29,7 +29,8 @@ esac
 case "$*" in
   *baddb*) echo "Got error: 1049: Unknown database 'baddb'" >&2; exit 2 ;;
 esac
-echo "-- dump of $7"
+for db; do :; done
+echo "-- dump of $db"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "mysqldump"), []byte(script), 0o755))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -64,7 +65,7 @@ func TestDumpPassesPasswordViaEnvironmentOnly(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "-- dump of foo\n", out)
-	assert.Equal(t, []string{"pwd=p@ss word;$x args=-h 127.0.0.1 -P 3306 -u root foo --column-statistics=0"}, readLog(t, logFile))
+	assert.Equal(t, []string{"pwd=p@ss word;$x args=-h 127.0.0.1 -P 3306 -u root --column-statistics=0 foo"}, readLog(t, logFile))
 }
 
 func TestDumpRetriesWithoutColumnStatistics(t *testing.T) {
@@ -128,4 +129,48 @@ func TestFailedCreateStashKeepsExistingStash(t *testing.T) {
 
 	entries, _ := os.ReadDir(filepath.Dir(path))
 	assert.Len(t, entries, 1, "temp file should be cleaned up")
+}
+
+// fakeMySQL installs a fake mysql client on PATH that logs each call and its stdin.
+func fakeMySQL(t *testing.T) string {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "calls.log")
+
+	script := `#!/bin/sh
+case "$*" in
+  *@@character_set_database*) echo "call: $*" >> "` + logFile + `"; printf 'utf8mb4\tutf8mb4_0900_ai_ci\n' ;;
+  *) echo "call: $* stdin: $(cat)" >> "` + logFile + `" ;;
+esac
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mysql"), []byte(script), 0o755))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	return logFile
+}
+
+func TestApplyStashResetsDatabaseBeforeLoading(t *testing.T) {
+	logFile := fakeMySQL(t)
+	cfg := &config.Config{BaseDir: t.TempDir()}
+	path, _ := cfg.GetStashFilePath("foo", "snap")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte("-- dump"), 0o600))
+	db := &config.DB{Host: "h", Port: 1, User: "u", Database: "my`db"}
+
+	require.NoError(t, NewMySQLStasher(cfg).ApplyStash(db, "foo", "snap"))
+
+	assert.Equal(t, []string{
+		"call: -h h -P 1 -u u -N -B -e SELECT @@character_set_database, @@collation_database my`db",
+		"call: -h h -P 1 -u u -e DROP DATABASE `my``db`; CREATE DATABASE `my``db` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; my`db stdin: ",
+		"call: -h h -P 1 -u u my`db stdin: -- dump",
+	}, readLog(t, logFile))
+}
+
+func TestApplyMissingStashDoesNotTouchDatabase(t *testing.T) {
+	logFile := fakeMySQL(t)
+	cfg := &config.Config{BaseDir: t.TempDir()}
+
+	err := NewMySQLStasher(cfg).ApplyStash(&config.DB{Database: "foo"}, "foo", "nope")
+
+	assert.ErrorContains(t, err, "doesn't exist")
+	assert.NoFileExists(t, logFile)
 }
