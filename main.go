@@ -8,6 +8,7 @@ import (
 	"mysql-stash/config"
 	"mysql-stash/stashers"
 	"os"
+	"strings"
 )
 
 const stashAction = "stash"
@@ -133,6 +134,11 @@ func printStashes(config *config.Config) {
 		}
 
 		for _, stash := range stashes {
+			// Skip in-progress dumps, which are written to hidden temp files.
+			if strings.HasPrefix(stash.Name(), ".") {
+				continue
+			}
+
 			fmt.Printf("- %s\n", stash.Name())
 		}
 	}
